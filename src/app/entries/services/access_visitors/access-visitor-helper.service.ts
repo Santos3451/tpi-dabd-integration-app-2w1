@@ -345,7 +345,7 @@ export class AccessVisitorHelperService {
       
       let response = x ? allowedDayDto.init_hour : allowedDayDto.end_hour;      
     
-      if(response.length < 7){
+      if(response?.length < 7){
         // funcion auxiliar para formatear la hora
         const formatHour = (hour: unknown): string => {
           if (typeof hour === 'string') {
