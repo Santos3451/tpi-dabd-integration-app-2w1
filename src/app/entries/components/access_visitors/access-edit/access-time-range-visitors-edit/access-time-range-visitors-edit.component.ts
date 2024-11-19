@@ -34,7 +34,15 @@ export class AccessTimeRangeVisitorsEditComponent implements OnInit {
     { name: 'Sáb', value: false },
     { name: 'Dom', value: false },
   ];
-
+  private readonly dayOrder: { [key: string]: number } = {
+    'MONDAY': 0,
+    'TUESDAY': 1,
+    'WEDNESDAY': 2,
+    'THURSDAY': 3,
+    'FRIDAY': 4,
+    'SATURDAY': 5,
+    'SUNDAY': 6
+  };
   form: FormGroup;
 
   private _allowedDays: AccessApiAllowedDay[] = [];
@@ -64,36 +72,38 @@ export class AccessTimeRangeVisitorsEditComponent implements OnInit {
   updateAvailableDays(): void {
     const startDate = this.form.get('startDate')?.value;
     const endDate = this.form.get('endDate')?.value;
-    
-    // Deshabilitar todos los días si no hay fechas seleccionadas
+ 
     if (!startDate || !endDate) {
       this.orderDays.forEach(day => {
         this.form.get(day)?.disable();
       });
       return;
     }
-    //SOLUCION POSIBLE:
-    // Crear fechas con la hora correcta
+
     const start = new Date(startDate + 'T00:00:00');
     const end = new Date(endDate + 'T23:59:59');
-
-    // Obtener los días disponibles
     const availableDays = this.getDaysBetweenDates(start, end);
 
-    // Primero deshabilitar todos los días
+    // Deshabilitar todos los días primero
     this.orderDays.forEach(day => {
       const control = this.form.get(day);
       control?.disable();
       control?.setValue(false);
     });
-    // Luego habilitar solo los días dentro del rango
+
+    // Habilitar solo los días disponibles que no están ya agregados
     availableDays.forEach(day => {
       const control = this.form.get(day);
-      if (control) {
+      const isAlreadyAdded = this._allowedDays.some(
+        allowedDay => this.getDayNameInSpanish(allowedDay.day) === day
+      );
+      
+      if (control && !isAlreadyAdded) {
         control.enable();
+      } else if (control) {
+        control.disable();
       }
     });
-    console.log('Días disponibles:', availableDays);
   }
 
   
@@ -141,15 +151,23 @@ get areDatesReadonly(): boolean {
 disableDateInputs: boolean = false;
 
 
-  ngOnInit(): void {
-    this.visitorService.getAllowedDays().subscribe(days => {
-      this._allowedDays = days;
-      this.updateDaysSelected();
-    });
-    this.updateDateFieldsState();
-   
-    
-  }
+ngOnInit(): void {
+  this.visitorService.getAllowedDays().subscribe(days => {
+    this._allowedDays = days;
+    this.updateDaysSelected();
+    if (!this.form.get('startDate')?.value || !this.form.get('endDate')?.value) {
+      this.orderDays.forEach(day => {
+        const control = this.form.get(day);
+        if (control) {
+          control.disable();
+        }
+      });
+    } else {
+      this.updateAvailableDays();
+    }
+  });
+  this.updateDateFieldsState();
+}
 
   agregarAuthRange(): void {
     console.log('Iniciando agregarAuthRange');
@@ -227,9 +245,7 @@ disableDateInputs: boolean = false;
   
   get allowedDays(): AccessApiAllowedDay[] {
     return [...this._allowedDays].sort((a, b) => {
-      const indexA = this.orderDays.indexOf(a.day);
-      const indexB = this.orderDays.indexOf(b.day);
-      return indexA - indexB;
+      return this.dayOrder[a.day] - this.dayOrder[b.day];
     });
   }
 
@@ -259,7 +275,7 @@ disableDateInputs: boolean = false;
     
     const [initHour, initMinute] = this.form.value.initHour.split(':').map(Number);
     const [endHour, endMinute] = this.form.value.endHour.split(':').map(Number);
-
+  
     const selectedDays = this.days.filter(day => this.form.controls[day.name].value);
     const newDaysToAdd: AccessApiAllowedDay[] = selectedDays.map(day => ({
       day: this.getDayName(day.name),
@@ -267,26 +283,61 @@ disableDateInputs: boolean = false;
       end_hour: [endHour, endMinute]
     }));
 
-    // Verificar días duplicados
-    const duplicates = newDaysToAdd.filter(newDay => 
-      this.allowedDays.some(existingDay => 
-        existingDay.day === newDay.day &&
-        existingDay.init_hour[0] === newDay.init_hour[0] &&
-        existingDay.init_hour[1] === newDay.init_hour[1] &&
-        existingDay.end_hour[0] === newDay.end_hour[0] &&
-        existingDay.end_hour[1] === newDay.end_hour[1]
-      )
-    );
-
-  
-
-    // Si no hay duplicados, agregar los días
-    this.visitorService.addAllowedDays(newDaysToAdd);
+    const conflictingDays: string[] = [];
     
-    // Limpiar los campos del formulario
-    this.form.controls['initHour'].setValue('');
-    this.form.controls['endHour'].setValue('');
-    this.resetDaySelections();
+    newDaysToAdd.forEach(newDay => {
+      const existingDay = this._allowedDays.find(existing => existing.day === newDay.day);
+      
+      if (existingDay) {
+        const newStartTime = newDay.init_hour[0] * 60 + newDay.init_hour[1];
+        const newEndTime = newDay.end_hour[0] * 60 + newDay.end_hour[1];
+        const existingStartTime = existingDay.init_hour[0] * 60 + existingDay.init_hour[1];
+        const existingEndTime = existingDay.end_hour[0] * 60 + existingDay.end_hour[1];
+
+        if ((newStartTime >= existingStartTime && newStartTime < existingEndTime) ||
+            (newEndTime > existingStartTime && newEndTime <= existingEndTime) ||
+            (newStartTime <= existingStartTime && newEndTime >= existingEndTime)) {
+          
+          const spanishDay = this.getDayNameInSpanish(newDay.day);
+          const existingTimeRange = this.formatHour(existingDay);
+          conflictingDays.push(`${spanishDay} (ya existe en horario: ${existingTimeRange})`);
+        }
+      }
+    });
+ 
+    if (conflictingDays.length > 0) {
+      Swal.fire({
+        icon: 'error',
+        title: 'Conflicto de horarios',
+        text: `Los siguientes días tienen conflictos: ${conflictingDays.join(', ')}`
+      });
+      return;
+    }
+  
+    // Actualizar los días permitidos y deshabilitar los controles correspondientes
+    const updatedDays = [...this._allowedDays, ...newDaysToAdd].sort(
+      (a, b) => this.dayOrder[a.day] - this.dayOrder[b.day]
+    );
+    
+    this.visitorService.updateAllowedDays(updatedDays);
+    
+    // Deshabilitar los días que se acaban de agregar
+    selectedDays.forEach(day => {
+      const control = this.form.get(day.name);
+      if (control) {
+        control.disable();
+        control.setValue(false);
+      }
+    });
+
+    // Resetear los campos de hora
+    this.form.get('initHour')?.reset();
+    this.form.get('endHour')?.reset();
+    
+    // Actualizar la vista
+    this.updateAvailableDays();
+    this.cdr.detectChanges();
+    this.agregarAuthRange();
   }
 
   private resetDaySelections(): void {
@@ -302,9 +353,36 @@ disableDateInputs: boolean = false;
   }
 
   deleteAllowedDay(allowedDay: AccessApiAllowedDay): void {
-    const updatedDays = this.allowedDays.filter(dp => dp.day !== allowedDay.day);
+    // Eliminar el día de los días permitidos
+    const updatedDays = this._allowedDays.filter(dp => dp.day !== allowedDay.day);
     this.visitorService.updateAllowedDays(updatedDays);
-  }
+    
+    // Obtener el nombre del día en español
+    const spanishDayName = this.getDayNameInSpanish(allowedDay.day);
+    
+    // Verificar si el día está dentro del rango de fechas seleccionado
+    const startDate = this.form.get('startDate')?.value;
+    const endDate = this.form.get('endDate')?.value;
+    
+    if (startDate && endDate) {
+        const start = new Date(startDate + 'T00:00:00');
+        const end = new Date(endDate + 'T23:59:59');
+        const availableDays = this.getDaysBetweenDates(start, end);
+        
+        if (availableDays.includes(spanishDayName)) {
+            const control = this.form.get(spanishDayName);
+            if (control) {
+                control.enable();
+                control.setValue(false);
+            }
+        }
+    }
+
+    // Agregar esta línea para actualizar el AuthRange
+    this.agregarAuthRange();
+    
+    this.cdr.detectChanges();
+}
 
   formatHour(schedule: AccessApiAllowedDay): string {
     const padNumber = (num: number) => num.toString().padStart(2, '0');
@@ -401,30 +479,5 @@ disableDateInputs: boolean = false;
     return dayMap[englishDay] || englishDay;
   }
 
-  private validateDuplicateDays(daysToAdd: AccessApiAllowedDay[]): boolean {
-    const duplicates = daysToAdd.filter(newDay => 
-      this._allowedDays.some(existingDay => 
-        existingDay.day === newDay.day &&
-        existingDay.init_hour[0] === newDay.init_hour[0] &&
-        existingDay.init_hour[1] === newDay.init_hour[1] &&
-        existingDay.end_hour[0] === newDay.end_hour[0] &&
-        existingDay.end_hour[1] === newDay.end_hour[1]
-      )
-    );
-
-    if (duplicates.length > 0) {
-      const duplicateDays = duplicates
-        .map(day => this.getDayNameInSpanish(day.day))
-        .join(', ');
-      
-      Swal.fire({
-        icon: 'warning',
-        title: 'Días duplicados',
-        text: `Los siguientes días ya están agregados con el mismo horario: ${duplicateDays}`
-      });
-      return false;
-    }
-    return true;
-  }
-
+  
 }

@@ -202,6 +202,7 @@ export interface AccessFormattedHours {
 export interface AccessUserAllowedInfoDto2 {
   document: string;
   documentType: number;
+  userType: number;
   name: string;
   last_name: string;
   email: string;
