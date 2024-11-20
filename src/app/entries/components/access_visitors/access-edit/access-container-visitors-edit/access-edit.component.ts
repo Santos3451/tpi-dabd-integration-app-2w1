@@ -27,6 +27,7 @@ import {
   AccessUserAllowedInfoDto2,
   AccessDayOfWeek,
   AccessFormattedHours,
+  AccessUserAllowedInfoDto,
 } from '../../../../models/access-visitors/access-VisitorsModels';
 import { AccessVisitorsRegisterServiceHttpClientService } from '../../../../services/access_visitors/access-visitors-register/access-visitors-register-service-http-client/access-visitors-register-service-http-client.service';
 import { AccessVisitorsEditServiceService } from '../../../../services/access_visitors/access-visitors-edit/access-visitors-edit-service/access-visitors-edit-service.service';
@@ -65,7 +66,7 @@ export class AccessEditComponent implements OnInit, AfterViewInit {
   public validationErrors: ValidationErrors = {};
   private additionalVisitorsErrors: AdditionalVisitorsErrors = {};
   private http = inject(HttpClient);
-  visitors: AccessUserAllowedInfoDto2[] = [];
+  visitors: AccessUserAllowedInfoDto[] = [];
   @ViewChild(AccessTimeRangeVisitorsEditComponent)
   timeRangeComponent?: AccessTimeRangeVisitorsEditComponent;
   indexUserType = 0;
@@ -289,9 +290,11 @@ export class AccessEditComponent implements OnInit, AfterViewInit {
 
   fetchvisitors(): void {
     const neighbor = this.user.id;
+    console.log('Vecino:', neighbor);
     this.visitorHttpService.fetchVisitorsByNeighbor(neighbor).subscribe({
       next: (response) => {
         this.visitors = response;
+        console.log('Visitantes:', response);
         if (this.visitors.length === 0) {
           Swal.fire({
             icon: 'warning',
@@ -593,7 +596,7 @@ export class AccessEditComponent implements OnInit, AfterViewInit {
     });
   }
 
-  editVisitor(visitor: AccessUserAllowedInfoDto2): void {
+  editVisitor(visitor: AccessUserAllowedInfoDto): void {
     this.selectedVisitor = JSON.parse(JSON.stringify(visitor));
     console.log('Selected Visitor:', this.selectedVisitor);
     console.log('Visitor UserType:', visitor.userType);
@@ -607,8 +610,7 @@ export class AccessEditComponent implements OnInit, AfterViewInit {
       last_name: visitor.last_name,
       document: visitor.document,
       email: visitor.email,
-      init_date: this.formatDateForInput(visitor.authRange.init_date),
-      end_date: this.formatDateForInput(visitor.authRange.end_date),
+
     });
     if (this.timeRangeComponent && this.selectedVisitor.authRange) {
       const initDate = new Date(this.selectedVisitor.authRange.init_date);

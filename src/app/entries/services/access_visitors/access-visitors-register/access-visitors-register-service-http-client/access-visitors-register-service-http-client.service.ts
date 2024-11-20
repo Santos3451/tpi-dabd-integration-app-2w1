@@ -7,7 +7,7 @@ import { AccessVisitorRecord, AccessAuthRange, AccessAllowedDay, AccessUser, Use
 import { QrDto } from '../../../../models/access-visitors/access-visitors-models';
 import { AccessRegistryUpdateService } from '../../../access-registry-update/access-registry-update.service';
 import { API_ENDPOINTS } from '../../../../entries-environment';
-import { AccessUserAllowedInfoDto2 } from '../../../../models/access-visitors/access-VisitorsModels';
+import { AccessUserAllowedInfoDto, AccessUserAllowedInfoDto2 } from '../../../../models/access-visitors/access-VisitorsModels';
 
 
 @Injectable({
@@ -149,8 +149,13 @@ export class AccessVisitorsRegisterServiceHttpClientService {
      })
    );
  }
- fetchVisitorsByNeighbor(neighborId: number): Observable<AccessUserAllowedInfoDto2[]> {
-  return this.http.get<AccessUserAllowedInfoDto2[]>(API_ENDPOINTS.VISITORS_BY_OWNER+neighborId)
+
+ fetchVisitorsByNeighbor(neighborId: number): Observable<AccessUserAllowedInfoDto[]> {
+  return this.http.get<AccessUserAllowedInfoDto[]>(API_ENDPOINTS.USERS_ALLOWED).pipe(map(response => {
+    return response.filter(visitor => visitor.neighbor_id == neighborId);
+   
+  }))
+
   
 }
 updateVisitor(visitorData: AccessUserAllowedInfoDto2): Observable<any> {

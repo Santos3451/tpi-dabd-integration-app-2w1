@@ -8,7 +8,8 @@ import { AccessUserAllowedInfoDto2, Owner } from '../../../../models/access-visi
 import { DatePipe } from '@angular/common';
 import { VisitorsService } from '../../access-visitors.service';
 import { AccessVisitorsEditServiceService } from '../access-visitors-edit-service/access-visitors-edit-service.service';
-import { API_ENDPOINTS } from '../../../../environment';
+import { API_ENDPOINTS } from '../../../../entries-environment';
+
 
 
 @Injectable({

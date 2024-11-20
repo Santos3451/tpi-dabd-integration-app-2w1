@@ -14,6 +14,7 @@ import { AccessUserServiceService } from '../../../../services/access-user/acces
 import { AccessUserReportService } from '../../../../services/access_report/access_httpclient/access_usersApi/access-user-report.service';
 import { AccessInsurancesService } from '../../../../services/access-insurances/access-insurances.service';
 import { error } from 'jquery';
+import { AccessEditComponent } from '../../access-edit/access-container-visitors-edit/access-edit.component';
 
 
 @Component({
@@ -25,7 +26,9 @@ import { error } from 'jquery';
     ReactiveFormsModule,
     AccessGridVisitorsRegistrationComponent,
     AccessTimeRangeVisitorsRegistrationComponent,
-    CommonModule
+    CommonModule,
+    AccessEditComponent
+    
 ],
 })
 export class AccessContainerVisitorsRegistrationComponent implements OnInit, OnDestroy {
