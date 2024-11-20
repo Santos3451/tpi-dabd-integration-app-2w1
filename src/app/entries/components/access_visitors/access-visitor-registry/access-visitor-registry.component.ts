@@ -144,7 +144,11 @@ export class AccessVisitorRegistryComponent
       this.selectedVehiclePlate=plate
       this.plateVehicle=plate
  // Deseleccionamos
-    } else {
+    } else if(plate === 'none'){
+      this.selectedVehiclePlate = '';
+      this.plateVehicle = '';
+    } 
+    else {
       // Si se selecciona una nueva patente, la guardamos
       this.selectedVehiclePlate = plate;
       this.plateVehicle=plate
@@ -227,7 +231,6 @@ export class AccessVisitorRegistryComponent
           };
     
             this.userService.registerEntryEmployeers(employeeMovement).subscribe(data =>{
-
             })
           }
 
@@ -493,15 +496,14 @@ loadUsersAllowedData(): Observable<boolean> {
                 `<div class="text-start">${this.getDocumentType(visitor).substring(0,1) + " - " +visitor.document}</div>`,
                 `<div class="text-start">
                 <select class="form-select" id="vehicles${index}" name="vehicles${index}">
-                    <option value="" disabled selected>Seleccione un vehículo</option>
+                <option value="sin_vehiculo" selected>Sin vehículo</option>
                     ${visitor.vehicles?.length > 0 ? visitor.vehicles.map(vehicle => `
                         <option value="${vehicle.plate}">${vehicle.plate} ${vehicle.vehicle_Type.description
-                        === 'Car' ? 'Coche' : 
+                        === 'Car' ? 'Auto' : 
                       vehicle.vehicle_Type.description === 'MotorBike' ? 'Motocicleta' : 
                       vehicle.vehicle_Type.description === 'Truck' ? 'Camión' : 
                       vehicle.vehicle_Type.description } </option>
                     `).join('') : ''}
-                    <option value="sin_vehiculo">Sin vehículo</option>
                 </select>
             </div>`,
                 `<div class="text-center">
@@ -694,8 +696,10 @@ loadUsersAllowedData(): Observable<boolean> {
 
       if (visitor.userType.description === 'Owner' || visitor.userType.description === 'Tenant') {
         accessObservable = this.prepareEntryMovement(visitor,vehiclePlate);
+
       } else if (visitor.userType.description === 'Employeed' || visitor.userType.description === 'Supplier') {
         accessObservable = this.prepareEntryMovementEmp(visitor, vehiclePlate);
+        
       } else {
         //es para visitors y los otros tipos q funcionan igual
         accessObservable = this.prepareEntryVisitor(visitor, vehiclePlate);
@@ -1277,12 +1281,13 @@ private prepareExitMovement(visitor: AccessUserAllowedInfoDtoOwner, plate: strin
   
         // Preparar mensaje del modal
         const modalMessage = `¿Está seguro que desea registrar el ingreso de ${visitor.name} ${visitor.last_name}?`;
+       
+        
         document.getElementById('modalMessageIngresoEmp')!.textContent = modalMessage;
   
         // Obtener el modal
         const modalElement = document.getElementById('confirmIngresoEmpModal')!;
         const modal = bootstrap.Modal.getOrCreateInstance(modalElement);
-  
         // Configurar los eventos del modal
         modalElement.addEventListener('hidden.bs.modal', () => {
           const confirmButton = document.getElementById('confirmIngresoEmpButton')!;
