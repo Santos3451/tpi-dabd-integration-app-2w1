@@ -15,7 +15,7 @@ export const environmentEntries = {
         visitorQr: '/visitor-qr/image',
         ownersAndTenants: '/user_Allowed/ownersAndTenants',
         visitorsByOwner: '/user_Allowed/visitors/by',
-        updateVisitor: '/user_Allowed/visitor/update',
+        updateVisitor: '/addNewAuthRange/',
         vehicleTypes: '/getAll/vehiclesType',
         validateQr: '/visitor-qr',
         generateQr: '/visitor-qr/generate',

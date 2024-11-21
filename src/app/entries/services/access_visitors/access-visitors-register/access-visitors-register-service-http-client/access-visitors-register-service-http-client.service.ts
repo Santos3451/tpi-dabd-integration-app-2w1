@@ -158,9 +158,9 @@ export class AccessVisitorsRegisterServiceHttpClientService {
 
   
 }
-updateVisitor(visitorData: AccessUserAllowedInfoDto2): Observable<any> {
+updateVisitor(visitorData: AccessUserAllowedInfoDto2,document:string,documentType:string): Observable<any> {
   return this.http.put(
-    `${API_ENDPOINTS.UPDATE_VISITOR}`,
+    `${API_ENDPOINTS.UPDATE_VISITOR}/${document}/${documentType}`,
     visitorData
   ).pipe(
     tap(response => {

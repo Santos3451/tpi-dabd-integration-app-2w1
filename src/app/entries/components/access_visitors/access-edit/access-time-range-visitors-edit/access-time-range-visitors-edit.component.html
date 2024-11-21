@@ -44,7 +44,7 @@
               <input
                 type="checkbox"
                 class="btn-check"
-                [id]="'btncheck' + (i + 1)"
+                [id]="'btncheckEdit' + (i + 1)"
                 [formControlName]="day.name"
                 [disabled]="isAllowedDay(day)"
                 autocomplete="off"
@@ -55,7 +55,7 @@
                 [class.btn-outline-primary]="!isAllowedDay(day) && !form.get(day.name)?.value"
                 [class.btn-primary]="isAllowedDay(day)"
                 [class.disabled]="isAllowedDay(day)"
-                [for]="'btncheck' + (i + 1)"
+                [for]="'btncheckEdit' + (i + 1)"
                 [style.opacity]="isAllowedDay(day) ? '1' : null"
               >
                 {{ day.name }}

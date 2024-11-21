@@ -255,7 +255,7 @@ export class AccessEditComponent implements OnInit, AfterViewInit {
 
 
   onSubmit(): void {
-    if (this.editForm.invalid) {
+/*      if (this.editForm.invalid) {
       Object.keys(this.editForm.controls).forEach((key) => {
         const control = this.editForm.get(key);
         if (control?.invalid) {
@@ -263,7 +263,7 @@ export class AccessEditComponent implements OnInit, AfterViewInit {
         }
       });
       return;
-    }
+    }  */
     const formValues = this.editForm.getRawValue();
     this.selectedVisitor = {
       ...this.selectedVisitor,
@@ -276,7 +276,8 @@ export class AccessEditComponent implements OnInit, AfterViewInit {
         end_date: new Date(formValues.end_date),
       },
     };
-
+    console.log("FORMULARIO",this.editForm.value);
+    
     this.saveAllVisitors();
   }
 
@@ -360,7 +361,9 @@ export class AccessEditComponent implements OnInit, AfterViewInit {
                 })
               ).subscribe(
                 (updatedVisitor) => {
-                  this.visitorHttpService.updateVisitor(updatedVisitor).subscribe({
+                  console.log(updatedVisitor, "UPDATED VISITORRR");
+                  
+                  this.visitorHttpService.updateVisitor(updatedVisitor,updatedVisitor.document,updatedVisitor.documentType.toString()).subscribe({
                     next: () => {
                       Swal.fire({
                         icon: 'success',
@@ -392,7 +395,7 @@ export class AccessEditComponent implements OnInit, AfterViewInit {
     console.log('Selected Visitor:', this.selectedVisitor);
     console.log('Visitor UserType:', visitor.userType);
     console.log('Available Types:', this.usersType);
-    this.indexUserType = this.selectedVisitor.userType;
+    //this.indexUserType = this.selectedVisitor.userType;
     this.updateemailcontrol();
     // Update form with visitor data
     this.editForm.patchValue({
