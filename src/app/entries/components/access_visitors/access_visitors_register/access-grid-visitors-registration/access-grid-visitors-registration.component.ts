@@ -4,7 +4,6 @@ import { FormsModule } from '@angular/forms';
 import { Subject, takeUntil } from 'rxjs';
 import { Output,EventEmitter } from '@angular/core';
 import { AccessVisitor } from '../../../../models/access-visitors/access-visitors-models';
-
 import $ from 'jquery';
 import 'datatables.net'
 import 'datatables.net-bs5';
@@ -104,13 +103,8 @@ export class AccessGridVisitorsRegistrationComponent implements OnInit, OnDestro
   ngOnInit(): void {
     setTimeout(() => {
       this.initializeDataTable();
-  
-
       $('#tablaconsulta tbody').on('click', '.view-more-btn', (event: any) => {
         const index = $(event.currentTarget).data('index');
-        //const selectedUser = this.movements[index].user_allowed;
-  
-        //this.viewuser(selectedUser);
       });
     });
 

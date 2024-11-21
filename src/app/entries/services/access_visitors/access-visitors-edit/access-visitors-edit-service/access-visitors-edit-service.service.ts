@@ -66,8 +66,23 @@ export class AccessVisitorsEditServiceService {
 
 
   updateAllowedDays(days: AccessApiAllowedDay[]): void {
-    this.allowedDaysSubject.next(days);
+    // Filtrar días únicos basándose en día y rango horario
+    const uniqueDays = days.filter((day, index, self) => 
+      self.findIndex(d => 
+        d.day === day.day && 
+        d.init_hour[0] === day.init_hour[0] &&
+        d.init_hour[1] === day.init_hour[1] &&
+        d.end_hour[0] === day.end_hour[0] &&
+        d.end_hour[1] === day.end_hour[1]
+      ) === index
+    );
+  
+    this.allowedDaysSubject.next(uniqueDays);
   }
+  // updateAllowedDays(days: AccessApiAllowedDay[]): void {
+  //   const newDays = [...days];
+  //   this.allowedDaysSubject.next(newDays);
+  // }
 
   addVisitorsTemporalsSubject(visitor: AccessUserAllowedInfoDto2): boolean {
     const currentVisitors = this.visitorsSubject.value;

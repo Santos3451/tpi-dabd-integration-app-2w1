@@ -1,10 +1,7 @@
 import {
   Component,
-  EventEmitter,
   OnInit,
   AfterViewInit,
-  ViewEncapsulation,
-  inject,
   ViewChild,
 } from '@angular/core';
 import {
@@ -14,41 +11,26 @@ import {
   ReactiveFormsModule,
   Validators,
 } from '@angular/forms';
-import { HttpClient, HttpClientModule } from '@angular/common/http';
 import { DatePipe } from '@angular/common';
 import { CommonModule } from '@angular/common';
 import $ from 'jquery';
 import 'datatables.net';
 import 'datatables.net-bs5';
 import Swal from 'sweetalert2';
-import { Subject, takeUntil } from 'rxjs';
+import { map, Subject, takeUntil } from 'rxjs';
 import { UserType } from '../../../../models/access-visitors/access-visitors-models';
 import {
   AccessUserAllowedInfoDto2,
   AccessDayOfWeek,
-  AccessFormattedHours,
   AccessUserAllowedInfoDto,
+  AuthRangeInfoDto,
+  AccessApiAllowedDay,
 } from '../../../../models/access-visitors/access-VisitorsModels';
 import { AccessVisitorsRegisterServiceHttpClientService } from '../../../../services/access_visitors/access-visitors-register/access-visitors-register-service-http-client/access-visitors-register-service-http-client.service';
 import { AccessVisitorsEditServiceService } from '../../../../services/access_visitors/access-visitors-edit/access-visitors-edit-service/access-visitors-edit-service.service';
 import { AccessTimeRangeVisitorsEditComponent } from '../access-time-range-visitors-edit/access-time-range-visitors-edit.component';
-import { UserService } from '../../../../../users/users-servicies/user.service';
 import { AuthService } from '../../../../../users/users-servicies/auth.service';
-
-interface ValidationErrors {
-  [key: string]: string | TimeRangeErrors;
-}
-
-interface TimeRangeErrors {
-  [key: string]: string;
-}
-
-interface AdditionalVisitorsErrors {
-  [key: number]: {
-    [key: string]: string;
-  };
-}
-
+import { MovementsService } from '../../../../services/access_report/access_httpclient/access_getMovementsByDate/movements.service';
 @Component({
   selector: 'access-app-edit',
   standalone: true,
@@ -63,12 +45,9 @@ interface AdditionalVisitorsErrors {
   providers: [DatePipe],
 })
 export class AccessEditComponent implements OnInit, AfterViewInit {
-  public validationErrors: ValidationErrors = {};
-  private additionalVisitorsErrors: AdditionalVisitorsErrors = {};
-  private http = inject(HttpClient);
+
   visitors: AccessUserAllowedInfoDto[] = [];
-  @ViewChild(AccessTimeRangeVisitorsEditComponent)
-  timeRangeComponent?: AccessTimeRangeVisitorsEditComponent;
+  allowedDays?:AccessApiAllowedDay[]=[];
   indexUserType = 0;
   neighbor_id: Number | null = null;
   table: any = null;
@@ -79,13 +58,19 @@ export class AccessEditComponent implements OnInit, AfterViewInit {
   usersType: UserType[] = [];
   isModalVisible: boolean = false; // New property to control modal visibility
   user: any = null;
+  authRangeInfoDto?: AuthRangeInfoDto;
+
+  @ViewChild(AccessTimeRangeVisitorsEditComponent) 
+  timeRangeComponent!: AccessTimeRangeVisitorsEditComponent;
+
   constructor(
     private datePipe: DatePipe,
     private fb: FormBuilder,
     private visitorHttpService: AccessVisitorsRegisterServiceHttpClientService,
     private visitorService: AccessVisitorsEditServiceService,
     private userService: AuthService
-  ) {}
+  ) { }
+
   // Selected visitor for editing
   selectedVisitor: AccessUserAllowedInfoDto2 = {
     document: '',
@@ -118,7 +103,8 @@ export class AccessEditComponent implements OnInit, AfterViewInit {
     visitorId: 0,
   };
 
-
+ 
+  
   newVisitorTemplate: Partial<AccessUserAllowedInfoDto2> = {
     document: '',
     name: '',
@@ -135,16 +121,28 @@ export class AccessEditComponent implements OnInit, AfterViewInit {
       this.editVisitor(visitor);
     });
   }
-
+  loadAllowedDays(): void {
+    this.visitorService.getAllowedDays().subscribe(
+      (days: AccessApiAllowedDay[]) => {
+        this.allowedDays = days;
+      },
+      (error) => {
+        console.error('Error loading allowed days:', error);
+      }
+    );
+  }
+  
   ngOnInit(): void {
+    this.loadAllowedDays();
     this.setTodayDate();
     this.fetchUser();
     this.loadUsersType();
+    this.fetchvisitors();
     this.initForm();
   }
   initForm(): void {
     this.editForm = this.fb.group({
-      authorizedType: [1, Validators.required],
+      authorizedType: [{disabled: true }, Validators.required],
       name: ['', [Validators.required, Validators.maxLength(45)]],
       last_name: ['', [Validators.required, Validators.maxLength(45)]],
       document: [
@@ -165,7 +163,7 @@ export class AccessEditComponent implements OnInit, AfterViewInit {
 
   setTodayDate(): void {
     const currentDate = new Date();
-    this.todayDate = this.datePipe.transform(currentDate, 'yyyy-MM-dd') || ''; // Formato compatible con el input de tipo date
+    this.todayDate = this.datePipe.transform(currentDate, 'yyyy-MM-dd') || '';
   }
   loadUsersType(): void {
     this.visitorHttpService
@@ -186,24 +184,56 @@ export class AccessEditComponent implements OnInit, AfterViewInit {
     if ($.fn.dataTable.isDataTable('#tablaEdit')) {
       $('#tablaEdit').DataTable().clear().destroy();
     }
-
     this.table = $('#tablaEdit').DataTable({
-      // Configuración básica de la tabla
       paging: true,
-      searching: true,
       ordering: true,
+      pageLength: 5,
+      lengthMenu: [5, 10, 25, 50],
       lengthChange: true,
-      order: [0, 'asc'],
-      lengthMenu: [10, 25, 50],
-      pageLength: 10,
-      data: this.visitors, // Fuente de datos
-
-      // Definición de columnas
+      searching: true,
+      info: true,
+      autoWidth: false,
+      language: {
+        lengthMenu: " _MENU_ ",
+        zeroRecords: "No se encontraron invitaciones",
+        search: "",
+        searchPlaceholder: "Buscar",
+        emptyTable: "No hay invitaciones cargadas",
+        info: "",
+        infoEmpty: "",
+        infoFiltered: ""
+      },
+      data: this.visitors,
       columns: [
+        {
+          data: 'authRanges',
+          className: 'align-middle',
+          render: (data) => {
+            const initDate = data && data[0]
+              ? this.datePipe.transform(data[0].init_date, 'dd/MM/yyyy')
+              : '';
+            return `<div>${initDate}</div>`;
+          },
+        },
+        {
+          data: 'authRanges',
+          className: 'align-middle',
+          render: (data) => {
+            const endDate = data && data[0]
+              ? this.datePipe.transform(data[0].end_date, 'dd/MM/yyyy')
+              : '';
+            return `<div>${endDate}</div>`;
+          },
+        },
         {
           data: null,
           className: 'align-middle',
           render: (data) => `<div>${data.name} ${data.last_name}</div>`,
+        },
+        {
+          data: 'documentTypeDto.description',
+          className: 'align-middle',
+          render: (data) => `<div>${data || ''}</div>`,
         },
         {
           data: 'document',
@@ -211,55 +241,19 @@ export class AccessEditComponent implements OnInit, AfterViewInit {
           render: (data) => `<div>${data || ''}</div>`,
         },
         {
-          data: 'email',
-          className: 'align-middle',
-          render: (data) => `<div>${data || ''}</div>`,
-        },
-        {
-          data: 'authRange',
-          className: 'align-middle',
-          render: (data) => {
-            const initDate = data
-              ? this.datePipe.transform(data.init_date, 'dd/MM/yyyy')
-              : '';
-            return `<div>${initDate}</div>`;
-          },
-        },
-        {
-          data: 'authRange',
-          className: 'align-middle',
-          render: (data) => {
-            const endDate = data
-              ? this.datePipe.transform(data.end_date, 'dd/MM/yyyy')
-              : '';
-            return `<div>${endDate}</div>`;
-          },
-        },
-        {
           data: null,
           className: 'align-middle text-center',
           searchable: false,
           render: (data, type, row, meta) => `
-            <button class="btn btn-info btn-sm view-more-btn" data-index="${meta.row}">Editar</button>`,
+            <button class="btn btn-primary btn-sm view-more-btn" data-index="${meta.row}">Editar</button>`,
         },
       ],
-
-      // Personalización del DOM y mensajes
       dom: '<"mb-3"t><"d-flex justify-content-between"lp>',
-      language: {
-        lengthMenu: `
-          <select class="form-select">
-            <option value="10">10</option>
-            <option value="25">25</option>
-            <option value="50">50</option>
-          </select>`,
-        zeroRecords: 'No se encontraron visitantes',
-        loadingRecords: 'Cargando...',
-        processing: 'Procesando...',
-      },
     });
     this.table.draw();
   }
+
+
   onSubmit(): void {
     if (this.editForm.invalid) {
       Object.keys(this.editForm.controls).forEach((key) => {
@@ -270,8 +264,6 @@ export class AccessEditComponent implements OnInit, AfterViewInit {
       });
       return;
     }
-
-    // Update selectedVisitor with form values
     const formValues = this.editForm.getRawValue();
     this.selectedVisitor = {
       ...this.selectedVisitor,
@@ -314,230 +306,20 @@ export class AccessEditComponent implements OnInit, AfterViewInit {
     this.user = user;
     this.fetchvisitors();
   }
-  //validaciones
-  validateField(fieldName: string, value: string, visitorIndex?: number): void {
-    const errors = this.getFieldError(fieldName, value);
 
-    if (visitorIndex !== undefined) {
-      if (!this.additionalVisitorsErrors[visitorIndex]) {
-        this.additionalVisitorsErrors[visitorIndex] = {};
-      }
-      if (errors) {
-        this.additionalVisitorsErrors[visitorIndex][fieldName] = errors;
-      } else {
-        delete this.additionalVisitorsErrors[visitorIndex][fieldName];
-      }
-    } else {
-      if (errors) {
-        this.validationErrors[fieldName] = errors;
-      } else {
-        delete this.validationErrors[fieldName];
-      }
-    }
-  }
-  private getFieldError(fieldName: string, value: string): string | null {
-    switch (fieldName) {
-      case 'name':
-        return !value?.trim() ? 'El nombre es requerido' : null;
-      case 'last_name':
-        return !value?.trim() ? 'El apellido es requerido' : null;
-      case 'document':
-        return !value?.trim() ? 'El documento es requerido' : null;
-      case 'email':
-        // Si el tipo de usuario es 1, el email es requerido
-        if (this.indexUserType === 1) {
-          if (!value?.trim()) return 'El email es requerido';
-          return !this.isValidEmail(value)
-            ? 'El formato del email no es válido'
-            : null;
-        } else {
-          // Si el tipo de usuario no es 1, solo validamos el formato si se proporciona un email
-          return value?.trim() && !this.isValidEmail(value)
-            ? 'El formato del email no es válido'
-            : null;
-        }
-      default:
-        return null;
-    }
-  }
 
-  validateDateRange(): void {
-    const initDate = new Date(this.selectedVisitor.authRange.init_date);
-    const endDate = new Date(this.selectedVisitor.authRange.end_date);
-
-    if (endDate <= initDate) {
-      this.validationErrors['end_date'] =
-        'La fecha de fin debe ser mayor a la fecha de inicio';
-    } else {
-      delete this.validationErrors['end_date'];
-    }
-
-    // Validar que al menos un día esté seleccionado
-    if (this.selectedVisitor.authRange.allowedDays.length === 0) {
-      this.validationErrors['allowed_days'] =
-        'Debe seleccionar al menos un día de la semana';
-    } else {
-      delete this.validationErrors['allowed_days'];
-    }
-
-    // Validar las horas de cada día seleccionado
-    this.selectedVisitor.authRange.allowedDays.forEach((day) => {
-      const initHour = day.init_hour[0] * 60 + day.init_hour[1];
-      const endHour = day.end_hour[0] * 60 + day.end_hour[1];
-
-      if (endHour <= initHour) {
-        if (!this.validationErrors['time_range']) {
-          this.validationErrors['time_range'] = {} as TimeRangeErrors;
-        }
-        (this.validationErrors['time_range'] as TimeRangeErrors)[day.day] =
-          'La hora final debe ser mayor a la hora inicial';
-      } else {
-        if (this.validationErrors['time_range']) {
-          delete (this.validationErrors['time_range'] as TimeRangeErrors)[
-            day.day
-          ];
-          if (
-            Object.keys(this.validationErrors['time_range'] as TimeRangeErrors)
-              .length === 0
-          ) {
-            delete this.validationErrors['time_range'];
-          }
-        }
-      }
-    });
-  }
-
-  hasValidationErrors(): boolean {
-    this.validationErrors = {};
-
-    const formControls = this.editForm.controls;
-    let hasErrors = false;
-
-    Object.keys(formControls).forEach((key) => {
-      const control = formControls[key];
-
-      if (key === 'email' && this.indexUserType !== 1 && !control.value) {
-        return;
-      }
-
-      if (control.errors && control.touched) {
-        this.validationErrors[key] = control.errors;
-        hasErrors = true;
-      }
-    });
-
-    if (this.timeRangeComponent) {
-      const timeRangeForm = this.timeRangeComponent.form;
-      if (timeRangeForm.invalid && timeRangeForm.touched) {
-        hasErrors = true;
-      }
-    }
-
-    const initDate = new Date(this.selectedVisitor.authRange.init_date);
-    const endDate = new Date(this.selectedVisitor.authRange.end_date);
-
-    if (endDate <= initDate) {
-      this.validationErrors['end_date'] =
-        'La fecha de fin debe ser mayor a la fecha de inicio';
-      hasErrors = true;
-    }
-
-    const hasAdditionalErrors = Object.keys(this.additionalVisitorsErrors).some(
-      (index) =>
-        Object.keys(this.additionalVisitorsErrors[Number(index)]).length > 0
-    );
-
-    console.log('Validation Errors:', this.validationErrors);
-    console.log('Has Form Errors:', hasErrors);
-    console.log('Has Additional Errors:', hasAdditionalErrors);
-
-    return hasErrors || hasAdditionalErrors;
-  }
-
-  getValidationClass(fieldName: string, visitorIndex?: number): string {
-    if (visitorIndex !== undefined) {
-      return this.additionalVisitorsErrors[visitorIndex]?.[fieldName]
-        ? 'is-invalid'
-        : '';
-    }
-    return this.validationErrors[fieldName] ? 'is-invalid' : '';
-  }
-
-  // Método helper para obtener el mensaje de error
-  getErrorMessage(controlName: string): string {
-    const control = this.editForm.get(controlName);
-    if (control?.errors && control.touched) {
-      if (control.errors['required']) return 'Este campo es requerido';
-      if (control.errors['email']) return 'Ingrese un email válido';
-      if (control.errors['minlength'])
-        return `Mínimo ${control.errors['minlength'].requiredLength} caracteres`;
-      if (control.errors['maxlength'])
-        return `Máximo ${control.errors['maxlength'].requiredLength} caracteres`;
-      if (control.errors['pattern']) return 'Solo se permiten letras y números';
-    }
-    return '';
-  }
-  // Helper method to validate email format
-  private isValidEmail(email: string): boolean {
-    const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
-    return emailRegex.test(email);
-  }
-  getTimeErrorMessage(day: AccessDayOfWeek): string {
-    return ((this.validationErrors['time_range'] as TimeRangeErrors)?.[day] ||
-      '') as string;
-  }
-  hasTimeError(day: AccessDayOfWeek): boolean {
-    return !!(this.validationErrors['time_range'] as TimeRangeErrors)?.[day];
-  }
 
   formatDateForInput(date: Date | string | undefined): string {
     if (!date) return '';
     const dateObj = typeof date === 'string' ? new Date(date) : date;
     return this.datePipe.transform(dateObj, 'yyyy-MM-dd') || '';
   }
-  readonly DAYS_OF_WEEK: AccessDayOfWeek[] = [
-    'MONDAY',
-    'TUESDAY',
-    'WEDNESDAY',
-    'THURSDAY',
-    'FRIDAY',
-    'SATURDAY',
-    'SUNDAY',
-  ];
 
-  // auxiliares del modal
-  getDayTranslation(day: AccessDayOfWeek): string {
-    const translations: Record<AccessDayOfWeek, string> = {
-      MONDAY: 'Lunes',
-      TUESDAY: 'Martes',
-      WEDNESDAY: 'Miércoles',
-      THURSDAY: 'Jueves',
-      FRIDAY: 'Viernes',
-      SATURDAY: 'Sábado',
-      SUNDAY: 'Domingo',
-    };
-    return translations[day];
-  }
-  private formatTimeArrayToString(timeArray: number[]): string {
-    if (!timeArray || timeArray.length !== 2) {
-      return '';
-    }
 
-    const hours = timeArray[0].toString().padStart(2, '0');
-    const minutes = timeArray[1].toString().padStart(2, '0');
-    return `${hours}:${minutes}`;
-  }
+
+
 
   saveAllVisitors(): void {
-    if (this.hasValidationErrors()) {
-      Swal.fire({
-        icon: 'error',
-        title: 'Error de validación',
-        text: 'Por favor corrija los campos marcados en rojo',
-      });
-      return;
-    }
-  
     Swal.fire({
       title: '¿Estás seguro?',
       text: '¿Deseas actualizar estos visitantes?',
@@ -547,51 +329,60 @@ export class AccessEditComponent implements OnInit, AfterViewInit {
       cancelButtonText: 'Cancelar',
     }).then((result) => {
       if (result.isConfirmed) {
-        const allVisitors = [this.selectedVisitor];
-        let updatedVisitor= this.selectedVisitor;
-        // Get auth range and allowed days
-        this.visitorService.getAuthRange().subscribe((authRangeInfo) => {
-          if (authRangeInfo) {
-            this.visitorService.getAllowedDays().subscribe((allowedDays) => {
-              authRangeInfo.allowedDays = allowedDays;
-              
-              // Update visitor data
-               updatedVisitor={
-                document: this.selectedVisitor.document,
-                documentType: this.selectedVisitor.documentType,
-                userType: this.editForm.get('authorizedType')?.value,
-                name: this.selectedVisitor.name,
-                last_name: this.selectedVisitor.last_name,
-                email: this.selectedVisitor.email,
-                authId: this.selectedVisitor.authId,
-                authRange: authRangeInfo,
-                vehicle: this.selectedVisitor.vehicle,
-                visitorId: this.selectedVisitor.visitorId,
-              };
+        // First, get the auth range and allowed days
+        this.visitorService.getAuthRange().subscribe(
+          (authRangeInfo) => {
+            if (authRangeInfo) {
+              this.visitorService.getAllowedDays().pipe(
+                map(allowedDays => {
+                  authRangeInfo.allowedDays = allowedDays;
+                  const updatedVisitor: AccessUserAllowedInfoDto2 = {
+                    document: this.selectedVisitor.document,
+                    documentType: this.selectedVisitor.documentType,
+                    userType: this.editForm.get('authorizedType')?.value,
+                    name: this.selectedVisitor.name,
+                    last_name: this.selectedVisitor.last_name,
+                    email: this.selectedVisitor.email,
+                    authId: this.selectedVisitor.authId,
+                    authRange: {
+                      ...this.selectedVisitor.authRange,
+                      allowedDays: allowedDays.map(day => ({
+                        day: day.day,
+                        init_hour: day.init_hour,
+                        end_hour: day.end_hour
+                      }))
+                    },
+                    vehicle: this.selectedVisitor.vehicle,
+                    visitorId: this.selectedVisitor.visitorId,
+                  };
   
-              // Use the service to update the visitor
-              
-            });
+                  return updatedVisitor;
+                })
+              ).subscribe(
+                (updatedVisitor) => {
+                  this.visitorHttpService.updateVisitor(updatedVisitor).subscribe({
+                    next: () => {
+                      Swal.fire({
+                        icon: 'success',
+                        title: 'Éxito',
+                        text: 'El visitante ha sido actualizado correctamente',
+                      });
+                      this.hideModal();
+                      this.fetchvisitors();
+                    },
+                    error: (error) => {
+                      Swal.fire({
+                        icon: 'error',
+                        title: 'Error',
+                        text: 'Hubo un error al actualizar el visitante',
+                      });
+                    }
+                  });
+                }
+              );
+            }
           }
-        });
-        this.visitorHttpService.updateVisitor(updatedVisitor).subscribe({
-          next: () => {
-            Swal.fire({
-              icon: 'success',
-              title: 'Éxito',
-              text: 'El visitante ha sido actualizado correctamente',
-            });
-            this.hideModal();
-            this.fetchvisitors();
-          },
-          error: (error) => {
-            Swal.fire({
-              icon: 'error',
-              title: 'Error',
-              text: 'Hubo un error al actualizar el visitante',
-            });
-          }
-        });
+        );
       }
     });
   }
@@ -612,32 +403,64 @@ export class AccessEditComponent implements OnInit, AfterViewInit {
       email: visitor.email,
 
     });
-    if (this.timeRangeComponent && this.selectedVisitor.authRange) {
-      const initDate = new Date(this.selectedVisitor.authRange.init_date);
-      const endDate = new Date(this.selectedVisitor.authRange.end_date);
-
-      const formattedInitDate = initDate.toISOString().split('T')[0];
-      const formattedEndDate = endDate.toISOString().split('T')[0];
-
+    if (this.timeRangeComponent && visitor.authRanges && visitor.authRanges[0]) {
+      const initDate = new Date(visitor.authRanges[0].init_date);
+      const endDate = new Date(visitor.authRanges[0].end_date);
+    
+      const formattedInitDate = this.datePipe.transform(initDate, 'yyyy-MM-dd') || '';
+      const formattedEndDate = this.datePipe.transform(endDate, 'yyyy-MM-dd') || '';
+    
       this.timeRangeComponent.form.get('startDate')?.enable();
       this.timeRangeComponent.form.get('endDate')?.enable();
-
+    
       this.timeRangeComponent.form.patchValue({
         startDate: formattedInitDate,
         endDate: formattedEndDate,
       });
-
-      if (this.selectedVisitor.authRange.allowedDays) {
+    
+      this.visitorService.clearAllowedDays();
+    
+      if (visitor.authRanges[0].allowedDays) {
+        const formattedAllowedDays = visitor.authRanges[0].allowedDays.map(allowedDay => ({
+          day: allowedDay.day,
+          init_hour: Array.isArray(allowedDay.init_hour) 
+            ? allowedDay.init_hour.map(Number) 
+            : [Number(allowedDay.init_hour), 0],
+          end_hour: Array.isArray(allowedDay.end_hour) 
+            ? allowedDay.end_hour.map(Number) 
+            : [Number(allowedDay.end_hour), 0]
+        }));
+    
         this.visitorService.clearAllowedDays();
-        this.visitorService.addAllowedDays(
-          this.selectedVisitor.authRange.allowedDays
-        );
+        this.visitorService.addAllowedDays(formattedAllowedDays);
+    
+        formattedAllowedDays.forEach(allowedDay => {
+          const spanishDay = this.getDayNameInSpanish(allowedDay.day);
+          
+          const initHour = `${allowedDay.init_hour[0].toString().padStart(2, '0')}:${allowedDay.init_hour[1].toString().padStart(2, '0')}`;
+          const endHour = `${allowedDay.end_hour[0].toString().padStart(2, '0')}:${allowedDay.end_hour[1].toString().padStart(2, '0')}`;
+    
+          this.timeRangeComponent.form.get('initHour')?.setValue(initHour);
+          this.timeRangeComponent.form.get('endHour')?.setValue(endHour);
+          
+          this.timeRangeComponent.form.get(spanishDay)?.setValue(true);
+        });
       }
     }
     // Make document field readonly
-    this.editForm.get('document')?.disable();
-
     this.showModal();
+  }
+  getDayNameInSpanish(englishDay: string): string {
+    const dayMap: { [key: string]: string } = {
+      'MONDAY': 'Lun',
+      'TUESDAY': 'Mar',
+      'WEDNESDAY': 'Mié',
+      'THURSDAY': 'Jue',
+      'FRIDAY': 'Vie',
+      'SATURDAY': 'Sáb',
+      'SUNDAY': 'Dom'
+    };
+    return dayMap[englishDay] || englishDay;
   }
 
   isDayAllowed(day: AccessDayOfWeek): boolean {
@@ -645,20 +468,7 @@ export class AccessEditComponent implements OnInit, AfterViewInit {
       (allowedDay) => allowedDay.day === day.toUpperCase()
     );
   }
-  getAllowedDayHours(day: AccessDayOfWeek): AccessFormattedHours {
-    const allowedDay = this.selectedVisitor.authRange.allowedDays.find(
-      (d) => d.day === day.toUpperCase()
-    );
 
-    if (!allowedDay) {
-      return { init_hour: '', end_hour: '' };
-    }
-
-    return {
-      init_hour: this.formatTimeArrayToString(allowedDay.init_hour),
-      end_hour: this.formatTimeArrayToString(allowedDay.end_hour),
-    };
-  }
 
   // Update all visitors when changing dates or allowed days
   updateAllVisitorsAuthRanges(): void {
@@ -675,15 +485,7 @@ export class AccessEditComponent implements OnInit, AfterViewInit {
     }
   }
 
-  onEndDateChange(event: Event): void {
-    const target = event.target as HTMLInputElement;
-    if (target && target.value) {
-      this.selectedVisitor.authRange.end_date = new Date(
-        target.value + 'T00:00:00'
-      );
-      this.updateAllVisitorsAuthRanges();
-    }
-  }
+
 
   toggleDay(day: AccessDayOfWeek): void {
     const allowedDays = this.selectedVisitor.authRange.allowedDays;
@@ -702,28 +504,8 @@ export class AccessEditComponent implements OnInit, AfterViewInit {
     this.updateAllVisitorsAuthRanges();
   }
 
-  updateInitHour(day: AccessDayOfWeek, event: any): void {
-    const allowedDay = this.selectedVisitor.authRange.allowedDays.find(
-      (d) => d.day === day.toUpperCase()
-    );
-    if (allowedDay) {
-      const [hours, minutes] = event.target.value.split(':');
-      allowedDay.init_hour = [parseInt(hours, 10), parseInt(minutes, 10)];
-      this.validateDateRange(); // Validar después de actualizar la hora
-      this.updateAllVisitorsAuthRanges();
-    }
-  }
-  updateEndHour(day: AccessDayOfWeek, event: any): void {
-    const allowedDay = this.selectedVisitor.authRange.allowedDays.find(
-      (d) => d.day === day.toUpperCase()
-    );
-    if (allowedDay) {
-      const [hours, minutes] = event.target.value.split(':');
-      allowedDay.end_hour = [parseInt(hours, 10), parseInt(minutes, 10)];
-      this.validateDateRange(); // Validar después de actualizar la hora
-      this.updateAllVisitorsAuthRanges();
-    }
-  }
+
+
   //parte del modal
   showModal(): void {
     this.isModalVisible = true;
@@ -739,8 +521,6 @@ export class AccessEditComponent implements OnInit, AfterViewInit {
       authorizedType: 1,
     });
 
-    this.validationErrors = {};
-    this.additionalVisitorsErrors = {};
 
     Object.keys(this.editForm.controls).forEach((key) => {
       const control = this.editForm.get(key);
@@ -749,9 +529,9 @@ export class AccessEditComponent implements OnInit, AfterViewInit {
     });
 
     if (this.timeRangeComponent) {
-      this.timeRangeComponent.form.reset();
-      this.timeRangeComponent.form.markAsPristine();
-      this.timeRangeComponent.form.markAsUntouched();
+      // this.timeRangeComponent.form.reset();
+      // this.timeRangeComponent.form.markAsPristine();
+      // this.timeRangeComponent.form.markAsUntouched();
       this.visitorService.clearAllowedDays();
     }
 
@@ -822,7 +602,6 @@ export class AccessEditComponent implements OnInit, AfterViewInit {
     } else {
       emailControl?.setValidators([Validators.email, Validators.maxLength(70)]);
 
-      delete this.validationErrors['email'];
     }
     emailControl?.updateValueAndValidity();
   }
@@ -830,4 +609,31 @@ export class AccessEditComponent implements OnInit, AfterViewInit {
     this.unsubscribe$.next();
     this.unsubscribe$.complete();
   }
+  private userTypeTranslations: { [key: string]: string } = {
+    'Visitor': 'Visitante',
+    'Worker': 'Obrero',
+    'Delivery': 'Delivery',
+    'Taxi': 'Taxi',
+    'Cleaning': 'Personal de limpieza',
+    'Gardener': 'Jardinero'
+  };
+  
+  userTypes = [
+    { id: 1, description: 'Visitante' },
+    { id: 7, description: 'Obrero' },
+    { id: 8, description: 'Delivery' },
+    { id: 9, description: 'Taxi' },
+    { id: 10, description: 'Personal de limpieza' },
+    { id: 11, description: 'Jardinero' }
+  ];
+  
+  getUserTypeDescription(userType: { description: string } | number): string {
+    if (typeof userType === 'object' && userType.description) {
+      const translatedDescription = this.userTypeTranslations[userType.description] || userType.description;
+      return translatedDescription;
+    }
+    return "";
+  }
+
+
 }

@@ -53,7 +53,7 @@
                 class="btn"
                 [class.btn-primary]="!isAllowedDay(day) && form.get(day.name)?.value"
                 [class.btn-outline-primary]="!isAllowedDay(day) && !form.get(day.name)?.value"
-                [class.btn-info]="isAllowedDay(day)"
+                [class.btn-primary]="isAllowedDay(day)"
                 [class.disabled]="isAllowedDay(day)"
                 [for]="'btncheck' + (i + 1)"
                 [style.opacity]="isAllowedDay(day) ? '1' : null"
