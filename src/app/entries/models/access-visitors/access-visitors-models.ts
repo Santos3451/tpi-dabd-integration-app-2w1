@@ -26,6 +26,13 @@ export interface AccessAllowedDay {
   crossesMidnight: boolean;
 }
 
+export interface AccessAllowedDay2 {
+  day: AccessDay;
+  startTime: Date;
+  endTime: Date;
+  crossesMidnight: boolean;
+}
+
 export interface AccessVisitor {
   firstName: string;
   lastName: string;

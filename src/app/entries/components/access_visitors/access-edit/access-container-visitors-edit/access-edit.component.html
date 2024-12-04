@@ -39,7 +39,6 @@
       <div class="modal-body">
           <!-- formulario de editar en el modal -->
         <form [formGroup]="editForm" (ngSubmit)="onSubmit()">
-          <!-- Visitor Information Section -->
           <div class="visitor-section mb-4">
             <h6>Visitante Principal</h6>
             <div class="mb-3">
@@ -110,8 +109,10 @@
               </div>
             </div>
           </div>
-          <app-access-time-range-visitors-edit></app-access-time-range-visitors-edit>
-        </form>
+          <app-access-time-range-visitors-edit 
+          (rangeSelected)="handleRangeSelected($event)">
+        </app-access-time-range-visitors-edit>
+                </form>
 
 
       </div>

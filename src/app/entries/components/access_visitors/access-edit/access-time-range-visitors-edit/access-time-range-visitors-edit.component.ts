@@ -1,12 +1,14 @@
-import { ChangeDetectorRef, Component, OnInit } from '@angular/core';
+import { ChangeDetectorRef, Component, EventEmitter, OnInit, Output } from '@angular/core';
 import { CommonModule } from '@angular/common';
 import { FormsModule, ReactiveFormsModule, FormGroup, FormBuilder, Validators } from '@angular/forms';
-import {  AccessDay } from '../../../../models/access-visitors/access-visitors-models';
+import {  AccessAllowedDay, AccessAuthRange, AccessDay, AccessDay2, AccessUser } from '../../../../models/access-visitors/access-visitors-models';
 import Swal from 'sweetalert2';
 import { Subject } from 'rxjs';
 import { AccessVisitorsEditServiceService } from '../../../../services/access_visitors/access-visitors-edit/access-visitors-edit-service/access-visitors-edit-service.service';
 import { AccessVisitorsEditServiceHttpClientService } from '../../../../services/access_visitors/access-visitors-edit/access-visitors-edit-service-http-service/access-visitors-edit-service-http-client.service';
 import { AccessApiAllowedDay, AccessAuthRangeInfoDto2 } from '../../../../models/access-visitors/access-VisitorsModels';
+import { AuthService } from '../../../../../users/users-servicies/auth.service';
+import { AccessVisitorsRegisterServiceService } from '../../../../services/access_visitors/access-visitors-register/access-visitors-register-service/access-visitors-register-service.service';
 
 @Component({
   selector: 'app-access-time-range-visitors-edit',
@@ -16,10 +18,29 @@ import { AccessApiAllowedDay, AccessAuthRangeInfoDto2 } from '../../../../models
   styleUrl: './access-time-range-visitors-edit.component.css'
 })
 export class AccessTimeRangeVisitorsEditComponent implements OnInit {
-  private unsubscribe$ = new Subject<void>();
+  private userId = 0;
+  @Output() rangeSelected = new EventEmitter<{ init_date: string, end_date: string, allowedDays: any[] }>();
 
-  private _isFromParent: boolean = true;
-  neighborid: number = 0;
+
+  selectedRange = {
+    init_date: '',
+    end_date: '',
+    allowedDays: []
+  };
+
+  onRangeChange() {
+    this.rangeSelected.emit(this.selectedRange);
+  }
+
+
+  @Output() selectedUser = new EventEmitter<AccessUser>();
+  ngOnInit(): void {
+    this.visitorService.getAllowedDays().subscribe(days => {
+      this._allowedDays = days;
+      this.updateDaysSelected();
+    });
+    this.updateDateFieldsState();
+  }
 
   days: AccessDay[] = [
     { name: 'Lun', value: false },
@@ -30,27 +51,29 @@ export class AccessTimeRangeVisitorsEditComponent implements OnInit {
     { name: 'Sáb', value: false },
     { name: 'Dom', value: false },
   ];
-  private readonly dayOrder: { [key: string]: number } = {
-    'MONDAY': 0,
-    'TUESDAY': 1,
-    'WEDNESDAY': 2,
-    'THURSDAY': 3,
-    'FRIDAY': 4,
-    'SATURDAY': 5,
-    'SUNDAY': 6
-  };
+
   form: FormGroup;
 
-  private _allowedDays: AccessApiAllowedDay[] = [];
+  private _allowedDays: AccessAllowedDay[] = [];
 
   orderDays: string[] = ['Lun', 'Mar', 'Mié', 'Jue', 'Vie', 'Sáb', 'Dom'];
 
-  constructor(private cdr: ChangeDetectorRef, private visitorService: AccessVisitorsEditServiceService, private fb: FormBuilder, private httpService: AccessVisitorsEditServiceHttpClientService) {
+  constructor(
+    private visitorService: AccessVisitorsRegisterServiceService, 
+    private fb: FormBuilder,
+    private authService: AuthService
+  ) {
+    const today = new Date();
+    // Ajustar al formato YYYY-MM-DD considerando la zona horaria local
+    const localDate = new Date(today.getTime() - (today.getTimezoneOffset() * 60000))
+                        .toISOString()
+                        .split('T')[0];
+  
     this.form = this.fb.group({
-      startDate: ['', Validators.required],
-      endDate: ['', Validators.required],
-      initHour: ['', Validators.required],
-      endHour: ['', Validators.required],
+      startDateEdit: [localDate],
+      endDateEdit: [localDate],
+      initHourEdit: [''],
+      endHourEdit: [''],
       Lun: [{ value: false, disabled: true }],
       Mar: [{ value: false, disabled: true }],
       Mié: [{ value: false, disabled: true }],
@@ -59,131 +82,143 @@ export class AccessTimeRangeVisitorsEditComponent implements OnInit {
       Sáb: [{ value: false, disabled: true }],
       Dom: [{ value: false, disabled: true }],
     });
-
-
-    this.form.get('startDate')?.valueChanges.subscribe(() => this.updateAvailableDays());
-    this.form.get('endDate')?.valueChanges.subscribe(() => this.updateAvailableDays());
-  }
-
-  updateAvailableDays(): void {
-    const startDate = this.form.get('startDate')?.value;
-    const endDate = this.form.get('endDate')?.value;
   
-    if (!startDate || !endDate) {
-      this.orderDays.forEach(day => {
-        const control = this.form.get(day);
-        if (control) {
-          control.disable();
-          control.setValue(false);
-        }
+    this.form.get('startDateEdit')?.valueChanges.subscribe(() => this.updateAvailableDays());
+    this.form.get('endDateEdit')?.valueChanges.subscribe(() => this.updateAvailableDays());
+    this.form.get('initHourEdit')?.valueChanges.subscribe(() => this.validateTimeRange());
+    this.form.get('endHourEdit')?.valueChanges.subscribe(() => this.validateTimeRange());
+
+    this.userId = authService.getUser().id;
+  }
+  
+
+private validateTimeRange(): void {
+  const initHourEdit = this.form.get('initHourEdit')?.value;
+  const endHourEdit = this.form.get('endHourEdit')?.value;
+
+  if (initHourEdit && endHourEdit) {
+
+    const timeRegex = /^([01]?[0-9]|2[0-3]):[0-5][0-9]$/;
+    
+    if (!timeRegex.test(initHourEdit) || !timeRegex.test(endHourEdit)) {
+      Swal.fire({
+        icon: 'error',
+        title: 'Error',
+        text: 'El formato de hora debe ser HH:mm y estar entre 00:00 y 23:59',
+      });
+      this.form.get('initHourEdit')?.setErrors({ invalidFormat: true });
+      this.form.get('endHourEdit')?.setErrors({ invalidFormat: true });
+      return;
+    }
+
+    const start = new Date(`1970-01-01T${initHourEdit}`);
+    const end = new Date(`1970-01-01T${endHourEdit}`);
+
+    // Convertir a minutos para comparar
+    const startMinutes = start.getHours() * 60 + start.getMinutes();
+    const endMinutes = end.getHours() * 60 + end.getMinutes();
+
+    // Validar rango de horas
+    if (startMinutes < 0 || startMinutes > 1439 || endMinutes < 0 || endMinutes > 1439) {
+      Swal.fire({
+        icon: 'error',
+        title: 'Error',
+        text: 'Las horas deben estar entre 00:00 y 23:59',
       });
       return;
     }
-  
-    const start = new Date(startDate + 'T00:00:00');
-    const end = new Date(endDate + 'T23:59:59');
+
+    // Validar que la hora final sea mayor que la inicial
+    if (end <= start) {
+      this.form.get('endHourEdit')?.setErrors({ invalidTimeRange: true });
+      Swal.fire({
+        icon: 'error',
+        title: 'Error',
+        text: 'La hora de fin debe ser posterior a la hora de inicio',
+      });
+    } else {
+      this.form.get('endHourEdit')?.setErrors(null);
+      this.form.get('initHourEdit')?.setErrors(null);
+    }
+  }
+}
+  updateAvailableDays(): void {
+    const startDateEdit = this.form.get('startDateEdit')?.value;
+    const endDateEdit = this.form.get('endDateEdit')?.value;
+    
+    // Deshabilitar todos los días si no hay fechas seleccionadas
+    if (!startDateEdit || !endDateEdit) {
+      this.orderDays.forEach(day => {
+        this.form.get(day)?.disable();
+      });
+      return;
+    }
+    //SOLUCION POSIBLE:
+    // Crear fechas con la hora correcta
+    const start = new Date(startDateEdit + 'T00:00:00');
+    const end = new Date(endDateEdit + 'T23:59:59');
+
+    // Obtener los días disponibles
     const availableDays = this.getDaysBetweenDates(start, end);
-  
+
+    // Primero deshabilitar todos los días
     this.orderDays.forEach(day => {
       const control = this.form.get(day);
+      control?.disable();
+      control?.setValue(false);
+    });
+    // Luego habilitar solo los días dentro del rango
+    availableDays.forEach(day => {
+      const control = this.form.get(day);
       if (control) {
-        const isAlreadyAdded = this._allowedDays.some(
-          allowedDay => this.getDayNameInSpanish(allowedDay.day) === day
-        );
-  
-        if (availableDays.includes(day)) {
-          if (isAlreadyAdded) {
-            control.disable();
-          } else {
-            control.enable();
-            // Forzar la habilitación
-            setTimeout(() => {
-              if (control.disabled) {
-                control.enable();
-                this.form.markAsDirty();
-                this.form.updateValueAndValidity();
-                this.cdr.detectChanges();
-              }
-            });
-          }
-        } else {
-          control.disable();
-          control.setValue(false);
-        }
+        control.enable();
       }
     });
-  
-    this.form.updateValueAndValidity();
-    this.cdr.detectChanges();
+    console.log('Días disponibles:', availableDays);
   }
-
 
   getDaysBetweenDates(start: Date, end: Date): string[] {
 
-    const spanishDays = ['Dom', 'Lun', 'Mar', 'Mié', 'Jue', 'Vie', 'Sáb'];
-    const startDate = new Date(start);
-    const endDate = new Date(end);
+    const spanishDays = ['Dom', 'Lun', 'Mar', 'Mié', 'Jue', 'Vie', 'Sáb'];    
+    const startDateEdit = new Date(start);
+    const endDateEdit = new Date(end);
+    
 
-
-    startDate.setHours(0, 0, 0, 0);
-    endDate.setHours(23, 59, 59, 999);
-
+    startDateEdit.setHours(0, 0, 0, 0);
+    endDateEdit.setHours(23, 59, 59, 999);
+    
     const days = new Set<string>();
-    const currentDate = new Date(startDate);
+    const currentDate = new Date(startDateEdit);
+    
 
-
-    while (currentDate <= endDate) {
-      const dayName = spanishDays[currentDate.getDay()];
-      days.add(dayName);
-
-
-      const nextDate = new Date(currentDate);
-      nextDate.setDate(currentDate.getDate() + 1);
-      currentDate.setTime(nextDate.getTime());
+    while (currentDate <= endDateEdit) {
+        const dayName = spanishDays[currentDate.getDay()];
+        days.add(dayName);
+        
+        
+        const nextDate = new Date(currentDate);
+        nextDate.setDate(currentDate.getDate() + 1);
+        currentDate.setTime(nextDate.getTime());
     }
-
+    
     return Array.from(days);
-  }
+}
+  
 
 
+get areDatesDisabled(): boolean {
+  return this._allowedDays.length === 0; 
+}
 
-  get areDatesDisabled(): boolean {
-    return this._allowedDays.length === 0;
-  }
-
-  get areDatesReadonly(): boolean {
-    const hasValues = this.form.get('startDate')?.value &&
-      this.form.get('endDate')?.value;
-    return this._allowedDays.length > 0 &&
-      this._isFromParent &&
-      hasValues;
-  }
-
-  disableDateInputs: boolean = false;
-
-
-  ngOnInit(): void {
-    this.visitorService.getAllowedDays().subscribe(days => {
-      this._allowedDays = days;
-      this.updateDaysSelected();
-      if (!this.form.get('startDate')?.value || !this.form.get('endDate')?.value) {
-        this.orderDays.forEach(day => {
-          const control = this.form.get(day);
-          if (control) {
-            control.disable();
-          }
-        });
-      } else {
-        this.updateAvailableDays();
-      }
-    });
-    this.updateDateFieldsState();
-  }
+get areDatesReadonly(): boolean {
+  return this._allowedDays.length > 0; 
+}
+disableDateInputs: boolean = false;
 
   agregarAuthRange(): void {
     console.log('Iniciando agregarAuthRange');
     console.log('Valores del formulario:', this.form.value);
-
+    
     if (!this.validateDates()) {
       return;
     }
@@ -197,10 +232,10 @@ export class AccessTimeRangeVisitorsEditComponent implements OnInit {
       return;
     }
 
-    const startDate = new Date(this.form.value.startDate);
-    const endDate = new Date(this.form.value.endDate);
+    const startDateEdit = new Date(this.form.value.startDateEdit);
+    const endDateEdit = new Date(this.form.value.endDateEdit);
 
-    if (isNaN(startDate.getTime()) || isNaN(endDate.getTime())) {
+    if (isNaN(startDateEdit.getTime()) || isNaN(endDateEdit.getTime())) {
       Swal.fire({
         icon: 'error',
         title: 'Error',
@@ -208,18 +243,12 @@ export class AccessTimeRangeVisitorsEditComponent implements OnInit {
       });
       return;
     }
-    this.visitorService.getNeighbors().subscribe(id => {
-      this.neighborid = id;
 
-    });
-    console.log('Valores del vecino:', this.neighborid);
-    const authRange: AccessAuthRangeInfoDto2 = {
-
-      neighbor_id: this.neighborid,
-      init_date: startDate,
-      end_date: endDate,
+    const authRange: AccessAuthRange = {
+      initDate: startDateEdit,
+      endDate: endDateEdit,
       allowedDays: this._allowedDays,
-
+      neighbourId: this.userId,
     };
 
     try {
@@ -240,28 +269,21 @@ export class AccessTimeRangeVisitorsEditComponent implements OnInit {
 
   updateDaysSelected(): void {
     this.days.forEach(day => {
-      const control = this.form.get(day.name);
-      if (control) {
-        const isAllowed = this.allowedDays.some(dayAllowed => dayAllowed.day === day.name);
-        if (isAllowed) {
-          control.setValue(true);
-          control.disable();
-        } else if (!control.disabled) {
-          control.setValue(false);
-        }
-      }
+      day.value = this._allowedDays.some(dayAllowed => dayAllowed.day.name === day.name);
+      this.form.controls[day.name].setValue(day.value);
     });
   }
- 
 
-  get allowedDays(): AccessApiAllowedDay[] {
+  get allowedDays(): AccessAllowedDay[] {
     return [...this._allowedDays].sort((a, b) => {
-      return this.dayOrder[a.day] - this.dayOrder[b.day];
+      const indexA = this.orderDays.indexOf(a.day.name);
+      const indexB = this.orderDays.indexOf(b.day.name);
+      return indexA - indexB;
     });
   }
 
   validateHours(): boolean {
-    if (!this.form.value.initHour || !this.form.value.endHour) {
+    if (!this.form.value.initHourEdit || !this.form.value.endHourEdit) {
       Swal.fire({
         icon: 'error',
         title: 'Error',
@@ -273,150 +295,84 @@ export class AccessTimeRangeVisitorsEditComponent implements OnInit {
   }
   private updateDateFieldsState(): void {
     if (this._allowedDays.length > 0) {
-      this.form.controls['startDate'].disable();
-      this.form.controls['endDate'].disable();
+      this.form.controls['startDateEdit'].disable();
+      this.form.controls['endDateEdit'].disable();
     } else {
-      this.form.controls['startDate'].enable();
-      this.form.controls['endDate'].enable();
+      this.form.controls['startDateEdit'].enable();
+      this.form.controls['endDateEdit'].enable();
     }
   }
   agregarDiasPermitidos(): void {
+   
     if (!this.validateHours()) return;
     if (!this.validateDates()) return;
-
-    const [initHour, initMinute] = this.form.value.initHour.split(':').map(Number);
-    const [endHour, endMinute] = this.form.value.endHour.split(':').map(Number);
-
-    const selectedDays = this.days.filter(day => this.form.controls[day.name].value);
-    const newDaysToAdd: AccessApiAllowedDay[] = selectedDays.map(day => ({
-      day: this.getDayName(day.name),
-      init_hour: [initHour, initMinute],
-      end_hour: [endHour, endMinute]
-    }));
-
-    const conflictingDays: string[] = [];
-
-    newDaysToAdd.forEach(newDay => {
-      const existingDay = this._allowedDays.find(existing => existing.day === newDay.day);
-
-      if (existingDay) {
-        const newStartTime = newDay.init_hour[0] * 60 + newDay.init_hour[1];
-        const newEndTime = newDay.end_hour[0] * 60 + newDay.end_hour[1];
-        const existingStartTime = existingDay.init_hour[0] * 60 + existingDay.init_hour[1];
-        const existingEndTime = existingDay.end_hour[0] * 60 + existingDay.end_hour[1];
-
-        if ((newStartTime >= existingStartTime && newStartTime < existingEndTime) ||
-          (newEndTime > existingStartTime && newEndTime <= existingEndTime) ||
-          (newStartTime <= existingStartTime && newEndTime >= existingEndTime)) {
-
-          const spanishDay = this.getDayNameInSpanish(newDay.day);
-          const existingTimeRange = this.formatHour(existingDay);
-          conflictingDays.push(`${spanishDay} (ya existe en horario: ${existingTimeRange})`);
-        }
-      }
-    });
-
-    if (conflictingDays.length > 0) {
+  
+    const initHourEdit = new Date(`1970-01-01T${this.form.value.initHourEdit}:00`);
+    const endHourEdit = new Date(`1970-01-01T${this.form.value.endHourEdit}:00`);
+  
+    const crossesMidnight = endHourEdit <= initHourEdit;
+  
+    const newDaysAlloweds: AccessAllowedDay[] = this.days
+      .filter(day => this.form.controls[day.name].value && !this._allowedDays.some(dp => dp.day.name === day.name))
+      .map(day => ({
+        day: { ...day },
+        startTime: initHourEdit,
+        endTime: endHourEdit,
+        crossesMidnight: crossesMidnight,
+      }));
+  
+    if (newDaysAlloweds.length === 0) {
       Swal.fire({
-        icon: 'error',
-        title: 'Conflicto de horarios',
-        text: `Los siguientes días tienen conflictos: ${conflictingDays.join(', ')}`
+        icon: 'warning',
+        title: 'Advertencia',
+        text: 'Por favor, seleccione al menos un día nuevo para agregar.',
       });
       return;
     }
-
-    // Actualizar los días permitidos y deshabilitar los controles correspondientes
-    const updatedDays = [...this._allowedDays, ...newDaysToAdd].sort(
-      (a, b) => this.dayOrder[a.day] - this.dayOrder[b.day]
-    );
-
-    this.visitorService.updateAllowedDays(updatedDays);
-
-    // Deshabilitar los días que se acaban de agregar
-    selectedDays.forEach(day => {
-      const control = this.form.get(day.name);
-      if (control) {
-        control.disable();
-        control.setValue(false);
-      }
-    });
-
-    // Resetear los campos de hora
-    this.form.get('initHour')?.reset();
-    this.form.get('endHour')?.reset();
-
-    // Actualizar la vista
-    this.updateAvailableDays();
-    this.cdr.detectChanges();
+    
+    this._allowedDays = [...this._allowedDays, ...newDaysAlloweds];
+    this.visitorService.updateAllowedDays(this._allowedDays);
+    
+    // Resetear los valores
+    this.form.get('initHourEdit')?.reset();
+    this.form.get('endHourEdit')?.reset();
+    
+    // Marcar como no tocados y actualizar validación
+    this.form.get('initHourEdit')?.markAsUntouched();
+    this.form.get('endHourEdit')?.markAsUntouched();
+    this.form.get('initHourEdit')?.updateValueAndValidity();
+    this.form.get('endHourEdit')?.updateValueAndValidity();
+    
+    this.updateDaysSelected();
     this.agregarAuthRange();
   }
-
-  private resetDaySelections(): void {
-    this.days.forEach(day => {
-      const control = this.form.get(day.name);
-      if (control && !control.disabled) {
-        control.setValue(false);
-      }
-    });
-  }
   isAllowedDay(day: AccessDay): boolean {
- 
-    return this._allowedDays.some(
-      allowedDay => this.getDayNameInSpanish(allowedDay.day) === day.name
-    );
-  }
-deleteAllowedDay(allowedDay: AccessApiAllowedDay): void {
-
-  this._allowedDays = this._allowedDays.filter(dp => dp.day !== allowedDay.day);
-
-  this.visitorService.updateAllowedDays(this._allowedDays);
-
-  const startDate = this.form.get('startDate')?.value;
-  const endDate = this.form.get('endDate')?.value;
   
-  if (startDate && endDate) {
+    return this._allowedDays.some(allowedDay => allowedDay.day.name === day.name);
+  }
 
-    const start = new Date(startDate + 'T00:00:00');
-    const end = new Date(endDate + 'T23:59:59');
-    const availableDays = this.getDaysBetweenDates(start, end);
-    
-
-    const spanishDayName = this.getDayNameInSpanish(allowedDay.day);
-    const control = this.form.get(spanishDayName);
-    
-    if (control && availableDays.includes(spanishDayName)) {
-      
-      control.enable();
-      control.setValue(false);
-
-      setTimeout(() => {
-        if (control.disabled) {
-          control.enable();
-          this.form.markAsDirty();
-          this.form.updateValueAndValidity();
-          this.cdr.detectChanges();
-        }
-      });
+  deleteAllowedDay(allowedDay: AccessAllowedDay): void {
+    const index = this._allowedDays.findIndex(dp => dp.day.name === allowedDay.day.name);
+    if (index !== -1) {
+        this._allowedDays.splice(index, 1);
     }
-  }
- 
-  this.updateAvailableDays();
-  this.cdr.detectChanges();
+    this.visitorService.updateAllowedDays(this._allowedDays);
+    this.updateDaysSelected();
 }
-  formatHour(schedule: AccessApiAllowedDay): string {
-    const padNumber = (num: number) => num.toString().padStart(2, '0');
-    const initFormatted = `${padNumber(schedule.init_hour[0])}:${padNumber(schedule.init_hour[1])}`;
-    const endFormatted = `${padNumber(schedule.end_hour[0])}:${padNumber(schedule.end_hour[1])}`;
-    return `${initFormatted} - ${endFormatted}`;
+
+  formatHour(schedule: AccessAllowedDay): string {
+    const formatHour = (date: Date) => date.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+    const init = formatHour(schedule.startTime);
+    const end = formatHour(schedule.endTime);
+    return schedule.crossesMidnight ? `${init} - ${end}` : `${init} - ${end}`;
   }
-  
   validateDates(): boolean {
     console.log('Validando fechas');
-    console.log('Valor de startDate:', this.form.value.startDate);
-    console.log('Valor de endDate:', this.form.value.endDate);
+    console.log('Valor de startDateEdit:', this.form.value.startDateEdit);
+    console.log('Valor de endDateEdit:', this.form.value.endDateEdit);
+  
 
-
-    if (!this.form.value.startDate || !this.form.value.endDate) {
+    if (!this.form.value.startDateEdit || !this.form.value.endDateEdit) {
       console.log('Fechas no proporcionadas');
       Swal.fire({
         icon: 'error',
@@ -425,23 +381,23 @@ deleteAllowedDay(allowedDay: AccessApiAllowedDay): void {
       });
       return false;
     }
+  
 
-
-    const startDate = new Date(this.form.value.startDate + 'T00:00:00');
-    const endDate = new Date(this.form.value.endDate + 'T00:00:00');
-
+    const startDateEdit = new Date(this.form.value.startDateEdit + 'T00:00:00');
+    const endDateEdit = new Date(this.form.value.endDateEdit + 'T00:00:00');
+  
     console.log('Fechas parseadas:', {
-      startDate,
-      endDate,
-      isStartDateValid: !isNaN(startDate.getTime()),
-      isEndDateValid: !isNaN(endDate.getTime())
+      startDateEdit,
+      endDateEdit,
+      isStartDateEditValid: !isNaN(startDateEdit.getTime()),
+      isEndDateEditValid: !isNaN(endDateEdit.getTime())
     });
-
+  
     const currentDate = new Date();
     currentDate.setHours(0, 0, 0, 0);
+  
 
-
-    if (startDate < currentDate && !this._isFromParent) {
+    if (startDateEdit < currentDate) {
       console.log('Fecha de inicio anterior a la fecha actual');
       Swal.fire({
         icon: 'error',
@@ -450,8 +406,8 @@ deleteAllowedDay(allowedDay: AccessApiAllowedDay): void {
       });
       return false;
     }
-
-    if (endDate < currentDate) {
+  
+    if (endDateEdit < currentDate) {
       console.log('Fecha de fin anterior a la fecha actual');
       Swal.fire({
         icon: 'error',
@@ -460,8 +416,8 @@ deleteAllowedDay(allowedDay: AccessApiAllowedDay): void {
       });
       return false;
     }
-
-    if (endDate < startDate) {
+  
+    if (endDateEdit < startDateEdit) {
       console.log('Fecha de fin anterior a fecha de inicio');
       Swal.fire({
         icon: 'error',
@@ -470,34 +426,9 @@ deleteAllowedDay(allowedDay: AccessApiAllowedDay): void {
       });
       return false;
     }
-
+  
     console.log('Validación de fechas exitosa');
     return true;
   }
-  getDayNameInSpanish(englishDay: string): string {
-    const dayMap: { [key: string]: string } = {
-      'MONDAY': 'Lun',
-      'TUESDAY': 'Mar',
-      'WEDNESDAY': 'Mié',
-      'THURSDAY': 'Jue',
-      'FRIDAY': 'Vie',
-      'SATURDAY': 'Sáb',
-      'SUNDAY': 'Dom'
-    };
-    return dayMap[englishDay] || englishDay;
-  }
-  getDayName(englishDay: string): string {
-    const dayMap: { [key: string]: string } = {
-      'Lun': 'MONDAY',
-      'Mar': 'TUESDAY',
-      'Mié': 'WEDNESDAY',
-      'Jue': 'THURSDAY',
-      'Vie': 'FRIDAY',
-      'Sáb': 'SATURDAY',
-      'Dom': 'SUNDAY'
-    };
-    return dayMap[englishDay] || englishDay;
-  }
-
 
 }
